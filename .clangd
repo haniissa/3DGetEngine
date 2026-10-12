@@ -1,0 +1,14 @@
+CompileFlags:
+  # Tell clangd where compile_commands.json lives
+  CompilationDatabase: build
+
+  Add:
+    # ImGui core headers (FetchContent location) - absolute paths for Zed
+    - -IC:/Users/jazmi/OneDrive/Desktop/cpp/3dgetEngineLap/build/_deps/imgui-src
+    - -IC:/Users/jazmi/OneDrive/Desktop/cpp/3dgetEngineLap/build/_deps/imgui-src/backends
+    # Your own source headers
+    - -IC:/Users/jazmi/OneDrive/Desktop/cpp/3dgetEngineLap/src
+
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
