@@ -74,12 +74,22 @@
 git clone <repository-url>
 cd 3DJetEngineLab
 
+# make cmake build for you 
+cmake -G Ninja -B build -S ./ -D PROJECT_NAME="the Name you want" -D CMAKE_PREFIX_PATH="C:/msys64/mingw64"
+cmake --build build --verbose --config Release
+cd build
+./"the Name you want"
+
+# or Ai approach 
+
 # 2. Create build directory
-mkdir build
+# mkdir build 
 cd build
 
 # 3. Configure (CMake fetches SDL3, vk-bootstrap, fmt, ImGui, GLM automatically)
 cmake .. -DCMAKE_BUILD_TYPE=Release
+# Or 
+
 
 # 4. Build (parallel compilation recommended)
 cmake --build . --config Release --parallel
