@@ -31,13 +31,13 @@ public:
 private:
   void Recalculate();
 
-  glm::vec3 m_target = glm::vec3(0.0F, 0.0F, 0.0F);
+  glm::vec3 m_target = glm::vec3(2.9F, 0.0F, 0.0F);
   glm::vec3 m_position = glm::vec3(5.0F, 2.0F, 5.0F);
   glm::vec3 m_up = glm::vec3(0.0F, 1.0F, 0.0F);
 
-  float m_distance = 7.0F;
-  float m_yaw = -45.0F;  // Horizontal angle (degrees)
-  float m_pitch = 20.0F; // Vertical angle (degrees)
+  float m_distance = 14.0F;
+  float m_yaw = 35.0F;  // Horizontal angle (degrees)
+  float m_pitch = 22.0F; // Vertical angle (degrees)
   float m_aspectRation = 16.0F / 9.0F;
   float m_fov = 60.0F;
 

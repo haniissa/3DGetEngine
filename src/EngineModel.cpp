@@ -1,9 +1,11 @@
 #include "EngineModel.h"
 #include "App.h"
+#include "Renderer.h"
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <glm/ext/matrix_transform.hpp>
+#include <glm/geometric.hpp>
 #include <glm/gtc/constants.hpp>
 #include <vector>
 
@@ -26,32 +28,58 @@ void EngineModel::GenerateLathe(const std::vector<glm::vec2>& profile,
 	const glm::vec3&color, float xOffset,
 	bool isHollow){
 		const int segments{48};
+		int profileSize = static_cast<int>(profile.size());
 		size_t baseVertex = m_vertices.size();
-		for(int i{}; i <= segments; ++i){
+
+
+		//Normal of a lathe surface = perpendicular to the profile tangent,
+		// //rotated around the axis: n3 = (n.x, n.y * cosA, n.y * sinA)
+		std::vector<glm::vec2> profileNormals(profileSize);
+		for(int j{}; j < profileSize; ++j){
+			glm::vec2 tangent(0.0F);
+			if(j > 0){
+				glm::vec2 d = profile[j] - profile[j - 1];
+				if(glm::length(d) > 1e-6F) tangent += glm::normalize(d);
+			}
+			if(j < profileSize - 1){
+				glm::vec2 d = profile[j + 1] - profile[j];
+				if(glm::length(d) > 1e-6f) tangent += glm::normalize(d);
+			}
+			if(glm::length(tangent) < 1e-5F) tangent = glm::vec2(1.0F, 0.0F);
+			tangent = glm::normalize(tangent);
+			profileNormals[j] = glm::vec2(-tangent.y, tangent.x); //rotate 90 deg
+		}
+
+		//size_t baseVertes = m_vertices.size();
+		for (int i{}; i <= segments; ++i){
 			float angle = static_cast<float>(i) / segments * 2.0F * glm::pi<float>();
 			float cosA = cosf(angle);
 			float sinA = sinf(angle);
 
-			for(const auto& pt : profile) {
+			for (int j{}; j < profileSize; ++j){
+				const glm::vec2& pt =  profile[j];
 				Vertex v;
 				v.position = glm::vec3(pt.x + xOffset, pt.y * cosA, pt.y * sinA);
 				v.color = color;
-				v.normal = glm::vec3(0.0F, cosA, sinA);
-				v.texCoord = glm::vec2(static_cast<float>(i) / segments, pt.y);
+				v.normal   = glm::normalize(glm::vec3(profileNormals[j].x,
+								 profileNormals[j].y * cosA,
+								 profileNormals[j].y * sinA));
+				v.texCoord  = glm::vec2(static_cast<float>(i) / segments, pt.y);
 				m_vertices.push_back(v);
 			}
 		}
-		int profileSize = static_cast<int>(profile.size());
+		//2. INDICES: join neighbouring vetices int triangles
 		for(int i{}; i < segments; ++i){
 			for(int j{}; j < profileSize - 1; ++j){
-				uint32_t a = static_cast<uint32_t>(baseVertex + i * profileSize + j);
-				uint32_t b = static_cast<uint32_t>(baseVertex + (i + 1) * profileSize + j);
-				uint32_t c  = static_cast<uint32_t>(baseVertex + (i + 1)* profileSize + (j + 1));
-				uint32_t d = static_cast<uint32_t>(baseVertex + i * profileSize + (j + 1));
+				uint32_t a = static_cast<uint32_t>(baseVertex + i * profileSize + j) ;
+				uint32_t b = static_cast<uint32_t>(baseVertex + (i + 1) * profileSize + j) ;
+				uint32_t c = static_cast<uint32_t>(baseVertex + (i + 1) * profileSize + (j + 1)) ;
+				uint32_t d = static_cast<uint32_t>(baseVertex + i * profileSize + (j + 1)) ;
 				m_indices.push_back(a); m_indices.push_back(b); m_indices.push_back(c);
 				m_indices.push_back(a); m_indices.push_back(c); m_indices.push_back(d);
 			}
 		}
+
 	}
 
 void EngineModel::GenerateIntake(){

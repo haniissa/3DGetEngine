@@ -139,6 +139,7 @@ void Renderer::Shutdown(){
     DestroyDepthResources();
 
     vkDestroyPipeline(m_device, m_graphicsPipeline, nullptr);
+    vkDestroyPipeline(m_device, m_particlePipeline, nullptr);
     vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
     vkDestroyDescriptorSetLayout(m_device, m_descriptorSetLayout, nullptr);
     vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
@@ -378,7 +379,7 @@ bool Renderer::CreatePipelineLayout(){
     uboLayoutBinding.binding = 0;
     uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     uboLayoutBinding.descriptorCount = 1;
-    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -399,10 +400,11 @@ bool Renderer::CreatePipelineLayout(){
         fmt::print(stderr, "[Renderer] Failed to create pipeline layout\n");
         return false;
     }
+
     return true;
 }
 
-bool Renderer::CreateGraphicsPipeline(){
+bool Renderer::CreatePipeline(bool particlePass, VkPipeline& outPipeline){
     auto vertShaderCode = ReadFile("shaders/shader.vert.spv");
     auto fragShaderCode = ReadFile("shaders/shader.frag.spv");
 
@@ -438,17 +440,18 @@ bool Renderer::CreateGraphicsPipeline(){
     bindingDescription.stride = sizeof(Vertex);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    VkVertexInputAttributeDescription attributeDescriptions[4]{};
+    VkVertexInputAttributeDescription attributeDescriptions[5]{};
     attributeDescriptions[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position)};
     attributeDescriptions[1] = {1, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color)};
     attributeDescriptions[2] = {2, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, normal)};
     attributeDescriptions[3] = {3, 0, VK_FORMAT_R32G32_SFLOAT,    offsetof(Vertex, texCoord)};
+    attributeDescriptions[4] = {4, 0, VK_FORMAT_R32G32B32A32_SFLOAT,    offsetof(Vertex, extra)};
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInputInfo.vertexBindingDescriptionCount = 1;
     vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-    vertexInputInfo.vertexAttributeDescriptionCount = 4;
+    vertexInputInfo.vertexAttributeDescriptionCount = 5;
     vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions;
 
     VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
@@ -478,21 +481,35 @@ bool Renderer::CreateGraphicsPipeline(){
     VkPipelineDepthStencilStateCreateInfo depthStencil{};
     depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depthStencil.depthTestEnable = VK_TRUE;
-    depthStencil.depthWriteEnable = VK_TRUE;
+    //Particles are drawn as on x-ray glow so you can see the flow through
+    //the casing. Flip this to VK_TRUE if you prefer strict occlusion
+    depthStencil.depthTestEnable = particlePass ? VK_FALSE : VK_TRUE;
+    depthStencil.depthWriteEnable = particlePass ? VK_TRUE : VK_TRUE;
     depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable = VK_FALSE;
 
     VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment.blendEnable = VK_TRUE;
-    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    if(particlePass){
+    	colorBlendAttachment.blendEnable = VK_TRUE;
+    	colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    	colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    	colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    	colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    	colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    	colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    }else{
+    	//Opaque metal. Blending here would haze overlapping lather shels.
+     	colorBlendAttachment.blendEnable = VK_FALSE;
+      	colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+       	colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+        colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    }
     colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                          VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
     VkPipelineColorBlendStateCreateInfo colorBlending{};
     colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -522,7 +539,7 @@ bool Renderer::CreateGraphicsPipeline(){
     pipelineInfo.renderPass = m_renderPass;
     pipelineInfo.subpass = 0;
 
-    VkResult result = vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_graphicsPipeline);
+    VkResult result = vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &outPipeline);
 
     vkDestroyShaderModule(m_device, vertModule, nullptr);
     vkDestroyShaderModule(m_device, fragModule, nullptr);
@@ -534,6 +551,13 @@ bool Renderer::CreateGraphicsPipeline(){
 
     fmt::print("[Renderer] Graphics pipeline created.\n");
     return true;
+}
+bool Renderer::CreateGraphicsPipeline(){
+	//Two passes over the same vertex buffer;
+	// mesh - opaeue metal, depth write on
+	// particles - additive glow, depth writ off
+	return CreatePipeline(false, m_graphicsPipeline)
+	and CreatePipeline(true, m_particlePipeline);
 }
 
 bool Renderer::CreateFramebuffers(){
@@ -893,37 +917,71 @@ void Renderer::UploadMesh(const std::vector<Vertex>& vertices, const std::vector
     m_indexCount = static_cast<uint32_t>(indices.size());
 }
 
-void Renderer::DrawMesh(uint32_t indexCount, uint32_t instanceCount){
-    if(m_graphicsPipeline == VK_NULL_HANDLE || m_vertexBuffer == VK_NULL_HANDLE || m_indexBuffer == VK_NULL_HANDLE){
-        return;
-    }
-    VkCommandBuffer cmd = m_commandBuffers[m_currentFrame];
+// void Renderer::DrawMesh(uint32_t indexCount, uint32_t instanceCount){
+//     if(m_graphicsPipeline == VK_NULL_HANDLE || m_vertexBuffer == VK_NULL_HANDLE || m_indexBuffer == VK_NULL_HANDLE){
+//         return;
+//     }
+//     VkCommandBuffer cmd = m_commandBuffers[m_currentFrame];
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
+//     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphicsPipeline);
 
-    VkDeviceSize offsets[] = {0};
-    vkCmdBindVertexBuffers(cmd, 0, 1, &m_vertexBuffer, offsets);
-    vkCmdBindIndexBuffer(cmd, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+//     VkDeviceSize offsets[] = {0};
+//     vkCmdBindVertexBuffers(cmd, 0, 1, &m_vertexBuffer, offsets);
+//     vkCmdBindIndexBuffer(cmd, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout,
-        0, 1, &m_descriptorSets[m_currentFrame], 0, nullptr);
+//     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout,
+//         0, 1, &m_descriptorSets[m_currentFrame], 0, nullptr);
 
-    VkViewport viewport{};
-    viewport.x = 0.0F;
-    viewport.y = 0.0F;
-    viewport.width = static_cast<float>(m_swapExtent.width);
-    viewport.height = static_cast<float>(m_swapExtent.height);
-    viewport.minDepth = 0.0F;
-    viewport.maxDepth = 1.0F;
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
+//     VkViewport viewport{};
+//     viewport.x = 0.0F;
+//     viewport.y = 0.0F;
+//     viewport.width = static_cast<float>(m_swapExtent.width);
+//     viewport.height = static_cast<float>(m_swapExtent.height);
+//     viewport.minDepth = 0.0F;
+//     viewport.maxDepth = 1.0F;
+//     vkCmdSetViewport(cmd, 0, 1, &viewport);
 
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = m_swapExtent;
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
+//     VkRect2D scissor{};
+//     scissor.offset = {0, 0};
+//     scissor.extent = m_swapExtent;
+//     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    vkCmdDrawIndexed(cmd, indexCount, instanceCount, 0, 0, 0);
+//     vkCmdDrawIndexed(cmd, indexCount, instanceCount, 0, 0, 0);
+// }
+
+void Renderer::DrawMesh(uint32_t indexCount, uint32_t firstIndex, bool particlePass){
+	if(indexCount == 0) return;
+	if(m_vertexBuffer == VK_NULL_HANDLE or m_indexBuffer == VK_NULL_HANDLE) return;
+
+	VkPipeline pipeline = particlePass ? m_particlePipeline : m_graphicsPipeline;
+	if(pipeline == VK_NULL_HANDLE) return;
+
+	VkCommandBuffer cmd = m_commandBuffers[m_currentFrame];
+
+	vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+	VkDeviceSize offsets[] = {0};
+	vkCmdBindVertexBuffers(cmd, 0, 1, &m_vertexBuffer, offsets);
+	vkCmdBindIndexBuffer(cmd, m_indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout, 0, 1, &m_descriptorSets[m_currentFrame], 0, nullptr);
+
+	VkViewport viewport{};
+	viewport.x = 0.0F;
+	viewport.y = 0.0F;
+	viewport.width = static_cast<float>(m_swapExtent.width);
+	viewport.height = static_cast<float>(m_swapExtent.height);
+	viewport.minDepth = 0.0F;
+	viewport.maxDepth = 1.0F;
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+	VkRect2D scissor{};
+	scissor.offset = {0, 0};
+	scissor.extent = m_swapExtent;
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+	vkCmdDrawIndexed(cmd, indexCount, 1, firstIndex, 0, 0);
 }
+
 
 void Renderer::UpdateUniforms(const UniformBufferObject& ubo){
     memcpy(m_uniformBufferMapped[m_currentFrame], &ubo, sizeof(ubo));

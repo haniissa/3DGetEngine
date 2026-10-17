@@ -11,6 +11,7 @@
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_init.h>
 #include <SDL3/SDL_keycode.h>
+#include <SDL3/SDL_mouse.h>
 #include <SDL3/SDL_mutex.h>
 #include <SDL3/SDL_stdinc.h>
 #include <SDL3/SDL_timer.h>
@@ -104,11 +105,15 @@ void App::ProcessEvents() {
     case SDL_EVENT_QUIT:
       m_running = false;
       break;
-    case SDL_EVENT_WINDOW_RESIZED:
-      // Handle resize (simplified_full recreation in production)
-      m_camera->OnResize(static_cast<float>(event.window.data1),
-                         static_cast<float>(event.window.data2));
+    case SDL_EVENT_WINDOW_RESIZED:{
+    	int pw = 0;
+     	int ph = 0;
+      SDL_GetWindowSizeInPixels(m_window, &pw, &ph);
+      m_camera->OnResize(static_cast<float>(pw), static_cast<float>(ph));
+      m_renderer->RecreateSwapchain(static_cast<uint32_t>(pw), static_cast<uint32_t>(ph));
       break;
+    }
+
     case SDL_EVENT_KEY_DOWN:
       switch (event.key.key) {
       case SDLK_ESCAPE:
@@ -137,8 +142,7 @@ void App::ProcessEvents() {
         break;
       case SDLK_S:
         m_sectionView = !m_sectionView;
-        m_scene->SetShowAirflow(m_sectionView);
-        m_engineModel->SetSectionView(m_sectionView);
+        m_scene->SetSection(m_sectionView);
         fmt::print("[App] Section view: {}\n", m_sectionView ? "ON" : "OFF");
         break;
       case SDLK_A:
@@ -165,13 +169,17 @@ void App::ProcessEvents() {
         break;
       }
       break;
-    case SDL_EVENT_MOUSE_MOTION:
-      m_camera->OnMouseMove(static_cast<float>(event.motion.xrel),
-                            static_cast<float>(event.motion.yrel),
-                            (event.motion.state & SDL_BUTTON_RMASK) != 0,
-                            (event.motion.state & SDL_BUTTON_RMASK) != 0);
-      break;
-    case SDL_EVENT_MOUSE_WHEEL:
+    case SDL_EVENT_MOUSE_MOTION:{
+    	if(ImGui::GetIO().WantCaptureMouse) break;
+     	const bool left = (event.motion.state & SDL_BUTTON_LMASK) != 0;
+     	const bool right = (event.motion.state & SDL_BUTTON_RMASK) != 0;
+
+      	m_camera->OnMouseMove(static_cast<float>(event.motion.xrel),
+       static_cast<float>(event.motion.yrel), left, right);
+       break;
+
+    }
+       case SDL_EVENT_MOUSE_WHEEL:
       m_camera->OnScroll(event.wheel.y);
       break;
     }
@@ -183,13 +191,17 @@ void App::Update(float dt) {
   m_simulation->Update(dt);
   m_camera->Update(dt);
   m_scene->Update(dt);
-  m_engineModel->SetExploadedView(
-      m_explodedView, m_scene->GetExplodedFactor());
+  //SceneManager owns the view toggles; mirror them into App each frame
+  m_explodedView = m_scene->IsExploded();
+  m_sectionView = m_scene->IsSection();
+  m_showAirflow = m_scene->isShowingAirflow();
+  m_particales->SetEnabled(m_showAirflow);
+
   m_particales->Update(dt, m_simulation->GetRPM(), m_simulation->GetThrottle());
 }
 
 void App::Render() {
-  m_renderer->BeginFrame();
+  if(!m_renderer->BeginFrame()) return;
 
   //----Update Uniforms----
   UniformBufferObject ubo{};
@@ -212,44 +224,71 @@ void App::Render() {
 
   m_renderer->UpdateUniforms(ubo);
 
-  ///------------------Draw Engine Components -------
-  /// In a full implementation, we'd draw each component with its own transform.
-  /// Here we draw the full mesh once for simplicity.
-  const auto &indices = m_engineModel->GetIndices();
-  if (!indices.empty()) {
-    m_renderer->DrawMesh(static_cast<uint32_t>(indices.size()));
+  //-----Build One vertex/index buffer : engine first, then particles----
+  std::vector<Vertex> verts = m_engineModel->GetVertices();
+  std::vector<uint32_t> idx = m_engineModel->GetIndices();
+  const uint32_t engineIndexCount = static_cast<uint32_t>(idx.size());
+
+  uint32_t particleIndexCount = 0;
+  if(m_showAirflow and m_simulation->IsRunning()){
+  		std::vector<Vertex> pVerts;
+  		std::vector<uint32_t> pIdx;
+  		m_particales->GenerateVertices(pVerts, pIdx);
+    if(!pIdx.empty()){
+    	//Particle indices start at 0, so shift them past the enigne vertices
+     const uint32_t shift = static_cast<uint32_t>(verts.size());
+     verts.insert(verts.end(), pVerts.begin(), pVerts.end());
+     for(uint32_t i:pIdx) idx.push_back(i + shift);
+     	particleIndexCount = static_cast<uint32_t>(pIdx.size());
+    }
+  }
+  if (engineIndexCount > 0 || particleIndexCount) {
+  	m_renderer->UploadMesh(verts, idx);
+   //Pass 1 : opaue engine. Pass2: additive particles, drawn after
+   m_renderer->DrawMesh(engineIndexCount, 0, false);
+   m_renderer->DrawMesh(particleIndexCount, engineIndexCount, true);
   }
 
-  //------Draw Airflow Particales ----
-  if (m_showAirflow && m_simulation->IsRunning()) {
-    std::vector<Vertex> verts =  m_engineModel->GetVertices();
-    std::vector<uint32_t> idx = m_engineModel->GetIndices();
 
-    if(m_showAirflow && m_simulation->IsRunning()){
-      std::vector<Vertex> pVerts; 
-      std::vector<uint32_t> pIdx;
+  // ///------------------Draw Engine Components -------
+  // /// In a full implementation, we'd draw each component with its own transform.
+  // /// Here we draw the full mesh once for simplicity.
+  // const auto &indices = m_engineModel->GetIndices();
+  // if (!indices.empty()) {
+  //   m_renderer->DrawMesh(static_cast<uint32_t>(indices.size()));
+  // }
 
-        m_particales->GenerateVertices(pVerts, pIdx);
+  // //------Draw Airflow Particales ----
+  // if (m_showAirflow && m_simulation->IsRunning()) {
+  //   std::vector<Vertex> verts =  m_engineModel->GetVertices();
+  //   std::vector<uint32_t> idx = m_engineModel->GetIndices();
+  //   const uint32_t engineIndexCount = static_cast<uint32_t>(idx.size());
 
-        const uint32_t shift = static_cast<uint32_t>(verts.size());
-        verts.insert(verts.end(), pVerts.begin(), pVerts.end() );
-        for(uint32_t i : pIdx) idx.push_back(i + shift);
-    }
+  //   if(m_showAirflow && m_simulation->IsRunning()){
+  //     std::vector<Vertex> pVerts;
+  //     std::vector<uint32_t> pIdx;
 
-    if(!idx.empty()){
-      m_renderer->UploadMesh(verts, idx);
-      m_renderer->DrawMesh(static_cast<uint32_t>(idx.size()));
-    }
+  //       m_particales->GenerateVertices(pVerts, pIdx);
 
-   
-  }
+  //       const uint32_t shift = static_cast<uint32_t>(verts.size());
+  //       verts.insert(verts.end(), pVerts.begin(), pVerts.end() );
+  //       for(uint32_t i : pIdx) idx.push_back(i + shift);
+  //   }
+
+  //   if(!idx.empty()){
+  //     m_renderer->UploadMesh(verts, idx);
+  //     m_renderer->DrawMesh(static_cast<uint32_t>(idx.size()));
+  //   }
+
+
+  // }
 
   // Draw UI Panels--
   m_renderer->BeginUI();
-  m_ui->BeginFrame(); // Starts ImGui frame 
+  m_ui->BeginFrame(); // Starts ImGui frame
   m_ui->DrawPanels(m_simulation.get(), m_scene.get());
   m_ui->EndFrame(); // calls Imgui::Rehnder()
-  m_renderer->EndUI(); //Submits draw data to Vulkan command buffer 
+  m_renderer->EndUI(); //Submits draw data to Vulkan command buffer
 
   m_renderer->EndFrame();
 }

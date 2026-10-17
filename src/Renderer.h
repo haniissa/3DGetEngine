@@ -10,12 +10,15 @@
 #include <vector>
 #include <array>
 #include <glm/glm.hpp>
+#include <vulkan/vulkan_core.h>
 
 struct Vertex {
     glm::vec3 position;
     glm::vec3 color;
     glm::vec3 normal;
     glm::vec2 texCoord;
+    //Shared 4th channel. Engien geometry leaves it at the default
+    glm::vec4 extra{0.0F, 0.0f, 0.0f, 1.0F};
 };
 
 struct UniformBufferObject{
@@ -43,7 +46,7 @@ class Renderer{
 
         // Upload geometry to GPU (grows internal buffers as needed)
         void UploadMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices);
-        void DrawMesh(uint32_t indexCount, uint32_t instanceCount = 1);
+        void DrawMesh(uint32_t indexCount, uint32_t firstIndex = 0, bool particlePass = false);
 
         // Upload the transformation & state uniform buffer
         void UpdateUniforms(const UniformBufferObject& ubo);
@@ -80,6 +83,7 @@ class Renderer{
         bool CreateDescriptorPool();
         bool CreatePipelineLayout();
         bool CreateGraphicsPipeline();
+        bool CreatePipeline(bool particlePass, VkPipeline& outPipeline);
         bool CreateUniformBuffers();
         bool CreateDescriptorSets();
         void RecreateSwapchainInternal();
@@ -114,6 +118,7 @@ class Renderer{
         VkRenderPass m_renderPass = VK_NULL_HANDLE;
         VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
         VkPipeline m_graphicsPipeline = VK_NULL_HANDLE;
+        VkPipeline m_particlePipeline = VK_NULL_HANDLE;
         VkDescriptorSetLayout m_descriptorSetLayout = VK_NULL_HANDLE;
         VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
 

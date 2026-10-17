@@ -54,6 +54,15 @@ void ParticleSystem::GenerateVertices(std::vector<Vertex>& outVertices,
 			size_t base = outVertices.size();
 			glm::vec3 color = GetTemperatureColor(p.temperature);
 
+			// Fade in on birth, out as the gas leaves the nozzle
+			float alpha = 1.0F;
+			if(p.life > 0.12F) alpha = p.life / 0.12F;
+			else if(p.life > 0.70F) alpha = (1.0F - p.life) / 0.30F;
+			alpha = std::clamp(alpha, 0.0F, 1.0F) * 0.9F;
+
+
+			//All four corner sitt ON the particle; the vertex shader pushes
+			//them apart in view space so the quad always faces the camera
 			//Small billboard quad for each particles
 			float s = p.size;
 			outVertices.push_back({p.position + glm::vec3(-s, -s, 0.0F), color, {0.0F,0.0F,1.0F}, {0.0F, 0.0F}});

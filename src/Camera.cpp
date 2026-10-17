@@ -6,7 +6,7 @@
 #include <glm/trigonometric.hpp>
 
 
-Camera::Camera(float apsectRatio) : m_aspectRation(m_aspectRation){
+Camera::Camera(float apsectR) : m_aspectRation(apsectR){
     Recalculate();
 }
 
@@ -26,18 +26,27 @@ void Camera::OnMouseMove(float dx, float dy, bool leftButton, bool rightButton){
         m_pitch = std::clamp(m_pitch, -89.0F, 89.0F);
         Recalculate();
     }
-    //Right button pan could be added here
+    if(rightButton){
+    	//Slide the orbit target in the camera's own screen plane.,
+     	glm::vec3 forward = glm::normalize(m_target - m_position);
+      	glm::vec3 right = glm::normalize(glm::cross(forward, m_up));
+       	glm::vec3 up = glm::normalize(glm::cross(right, forward));
+        const float scale = m_distance * 0.0015F;
+        m_target += right * (-dx * scale) + up * (dy *scale);
+        Recalculate();
+    }
 }
 
 void Camera::OnScroll(float delta){
     m_distance -= delta * 0.5F;
-    m_distance = std::clamp(m_distance, 2.0F, 20.0F);
+    m_distance = std::clamp(m_distance, 4.0F, 40.0F);
     Recalculate();
 }
 
 void Camera::OnResize(float width, float height){
     if(height > 0.0F){
         m_aspectRation = width / height;
+        Recalculate();
     }
 }
 
